@@ -8,23 +8,33 @@ using System.Net;
 using System.Net.Sockets;
 using System.IO;
 using System.Text.RegularExpressions;
+using System.Data;
+using System.Globalization;
+using System.Data.Common;
+using System.Data.SQLite;
+using System.Data.SqlClient;
 
 namespace Lab5_psp_server
 {
     class ThreadedServer
     {
+
+        SqlConnection conn;
         private Socket _serverSocket;
         private int _port;
-        private OpenGL Gl=new OpenGL();
-        //private StreamWriter writer = new StreamWriter("www\\coordinates.txt");
+        //private OpenGL Gl=new OpenGL();
         private int count = 2; //счетчик ходов
         private int sender = 0; //счетчик для отправки
         private int number = 1;
         private Object thisLock = new Object();
         private bool accept = false;
+        //Attributes
 
-        public ThreadedServer(int port)
-        { _port = port; }
+
+        public ThreadedServer(int port, SqlConnection conn)
+        { _port = port;
+           this.conn = conn;
+        }
 
         private class ConnectionInfo
         {
@@ -32,7 +42,7 @@ namespace Lab5_psp_server
             public Thread Thread;
         }
 
-        private Thread _acceptThread;
+        //private Thread _acceptThread;
         private List<ConnectionInfo> _connections = new List<ConnectionInfo>();
         private List<int> locker = new List<int>();
 
@@ -50,9 +60,9 @@ namespace Lab5_psp_server
             // Получаем информацию о локальном компьютере
             IPHostEntry localMachineInfo = Dns.GetHostEntry(Dns.GetHostName());
             IPEndPoint myEndpoint = new IPEndPoint(localMachineInfo.AddressList[1], _port);
-            IPEndPoint myEndpointlocal = new IPEndPoint(IPAddress.Parse("127.0.0.1"), _port);
+            //IPEndPoint myEndpointlocal = new IPEndPoint(IPAddress.Parse("127.0.0.1"), _port);
             //Console.WriteLine("Host address: " + localMachineInfo.AddressList[1]);
-            Console.WriteLine("Host address: " + myEndpointlocal);
+            //Console.WriteLine("Host address: " + myEndpointlocal);
             Console.WriteLine("Host address: " + myEndpoint);
             // Создаем сокет, привязываем его к адресу
             // и начинаем прослушивание
@@ -67,43 +77,12 @@ namespace Lab5_psp_server
             while (true)
             {
                 
-                //Console.WriteLine(Request);
-                // Принимаем соединение
                 Socket socket = _serverSocket.Accept();
-                //socket.Receive(buffer);
-                //string s1 = Encoding.ASCII.GetString(buffer);
-                //string[] s2 = s1.Split(' ');
-                // Создаем поток для получения данных
                 ConnectionInfo connection = new ConnectionInfo();
                 connection.Socket = socket;
                 connection.Thread = new Thread(RequestHandler);
                 connection.Thread.IsBackground = true;
                 connection.Thread.Start(connection);
-
-
-
-                    //string Html = "<html><body><h1>It works!</h1></body></html>";
-                    //string s3 = Gl.Answer(Html);
-                    //Console.WriteLine(s3);
-                    //buffer = Encoding.ASCII.GetBytes(s3);
-                    //socket.Send(buffer);
-                    //Console.WriteLine("New client");
-                    //Console.WriteLine(s1);
-  
-                    //Console.WriteLine(s2[1]);
-                   
-                    //ThreadPool.QueueUserWorkItem(new WaitCallback(ProcessConnection), connection);
-                    //ThreadPool.SetMaxThreads(4, 4);
-                    //// Сохраняем сокет
-                    //lock (_connections) _connections.Add(connection);
-               
-                
-                
-                
-
-                //ThreadPool.SetMinThreads(2, 4);
-
-                
             }
         }
 
@@ -125,22 +104,10 @@ namespace Lab5_psp_server
                     Console.WriteLine(Count);
                     // Преобразуем эти данные в строку и добавим ее к переменной Request
                     Request += Encoding.ASCII.GetString(buffer, 0, Count);
-                    //string Request1 = Encoding.ASCII.GetString(buffer, 0, Count);
                     Array.Clear(buffer, 0, buffer.Length);
-                    //Console.WriteLine(Request1);
                     if (Count>0)
                         Count = 0;
-                    // Запрос должен обрываться последовательностью \r\n\r\n
-                    // Либо обрываем прием данных сами, если длина строки Request превышает 4 килобайта
-                    // Нам не нужно получать данные из POST-запроса (и т. п.), а обычный запрос
-                    // по идее не должен быть больше 4 килобайт
-                    //if (Request.IndexOf("\r\n\r\n") >= 0 || Request.Length > 4096)
-                    //{
-                    //    break;
-                    //}
                 } while ( Count != 0);
-
-                //Console.WriteLine("\n\n1111");
                 Match ReqMatch = Regex.Match(Request, @"^\w+\s+([^\s\?]+)[^\s]*\s+HTTP/.*|");
                 //Console.WriteLine(ReqMatch.Groups[1].Value);
                 if (ReqMatch == Match.Empty)
@@ -167,14 +134,7 @@ namespace Lab5_psp_server
                     default: break;
 
                 }
-
-                //Console.WriteLine(RequestUri);
-
-                
-                //socket.Close();
- 
             }
-              
         }
 
         /// <summary>
@@ -303,34 +263,32 @@ namespace Lab5_psp_server
         private void ReceiveDate(Socket socket, string request)
         {
             byte[] buffer = new byte[1024];
-            int bytesrecv;
             int newcount;
+            string value = Parser(request);
             Console.WriteLine("\n\n"+request+"\n\n");
             lock (thisLock)
             {
                 StreamWriter Writer = new StreamWriter("www\\coordinates.txt", true, Encoding.UTF8);
-                string value = Parser(request);
                 string[] s1 = value.Split(' ');
                 newcount = Convert.ToInt32(s1[2]);
-                //Console.WriteLine(value);
                 Writer.WriteLine(value);
                 Writer.Close();
+
+                //Добавление данных в БД
+                conn.Open();
+                SqlCommand command = new SqlCommand("INSERT INTO Coordinates (Date) VALUES ('" + value + "');", conn);
+                command.ExecuteNonQuery();
+                Console.WriteLine("ВЫПОЛНИЛ");
+                conn.Close();
             }
-            //string[] readText = System.IO.File.ReadAllLines("coordinates.txt", Encoding.Default);
-            //Date = readText[readText.Length - 1];
             string Msg = "<html><body><h1>STOP</h1></body></html>";
             string Headers = "HTTP/1.1 200 OK\nContent-Type: text/html\nContent-Length: " + Msg.Length + "\n\n" + Msg + "\r\n\r\n";
             buffer = Encoding.ASCII.GetBytes(Headers);
             socket.Send(buffer);
             Array.Clear(buffer, 0, buffer.Length);
-            //if (newcount==count)
-            //{
-                locker.Clear();
-                accept = true;
-                sender = 0;
-            //}
-            //Console.WriteLine(Headers);
- 
+            locker.Clear();
+            accept = true;
+            sender = 0;
         }
 
         /// <summary>
@@ -345,14 +303,24 @@ namespace Lab5_psp_server
             string Date;
             string value = Parser(request);
             int newcount = int.Parse(value);
-            if (accept)
-                Console.WriteLine("assssssssssssssss" + newcount);
             if (accept == true && !locker.Contains(newcount))
             {
                 lock (thisLock)
                 {
-                    string[] readText = System.IO.File.ReadAllLines("www\\coordinates.txt", Encoding.Default);
-                    Date = readText[readText.Length - 1];
+                    //string[] readText = System.IO.File.ReadAllLines("www\\coordinates.txt", Encoding.Default);
+                    //Date = readText[readText.Length - 1];
+
+                    //Чтение данных из БД
+                    conn.Open();
+                    SqlDataReader dataread;
+                    SqlCommand command = new SqlCommand("SELECT * FROM Coordinates WHERE Id=(SELECT MAX(Id) FROM Coordinates);", conn);
+                    dataread=command.ExecuteReader();
+                    Console.WriteLine("ВЫПОЛНИЛ");
+                    //System.Console.WriteLine(dataread["Date"]);
+                    dataread.Read();
+                    Date=Convert.ToString(dataread["Date"]);
+                    Console.WriteLine(Date+"\n\n");
+                    conn.Close();
                 }
                 string Msg = "<html><body><h1>" + Date + "</h1></body></html>";
                 string Headers = "HTTP/1.1 200 OK\nContent-Type: text/html\nContent-Length: " + Msg.Length + "\n\n" + Msg + "\r\n\r\n";
@@ -361,7 +329,6 @@ namespace Lab5_psp_server
                 Array.Clear(buffer, 0, buffer.Length);
                 sender++;
                 locker.Add(newcount);
-                //Console.WriteLine("Элемент списка: " + locker[0]);
                 if (sender == 3)
                 {
                     accept = false;
@@ -384,70 +351,6 @@ namespace Lab5_psp_server
             
  
         }
-
-        private void ProcessConnection(object state)
-        {
-            ConnectionInfo connection = (ConnectionInfo)state;
-            byte[] buffer = new byte[255];
-            //Посылаем игроку его порядковый номер 
-            Console.WriteLine(_connections.IndexOf(connection));
-            Gl.Sender(connection.Socket, Convert.ToString(_connections.IndexOf(connection)));
-            try
-            {
-                Gl.pp = false;
-                while (true)
-                {
-                    if (Gl.pp == true)
-                    {
-                        Console.WriteLine("Отправляю");
-                        lock (_connections)
-                        {
-                            foreach (ConnectionInfo conn in _connections)
-                            {
-                                    Console.WriteLine("Посылаю всем");
-                                    Gl.Sender(conn.Socket);
-                                    //conn.Socket.Send(buffer, bytesRead, SocketFlags.None);
-                            }
-                        }
-                        Gl.pp = false;
-                    }
-
-                    if (Gl.pp == false && Gl.count!=1)
-                    {
-                        string s1=Gl.Receiver(connection.Socket);
-                        Console.WriteLine(s1);
-                        lock (_connections)
-                        {
-                            foreach (ConnectionInfo conn in _connections)
-                            {
-                                if (conn != connection)
-                                {
-                                    Console.WriteLine("Посылаю всем");
-                                    Gl.Sender(conn.Socket, s1);
-                                    //conn.Socket.Send(buffer, bytesRead, SocketFlags.None);
-                                }
-                            }
-                        }
-                    }
-                    //else if (buffer.) return;
-                }
-            }
-            catch (SocketException exc)
-            {
-                Console.WriteLine("Socket exception: " + exc.SocketErrorCode);
-            }
-            catch (Exception exc)
-            {
-                Console.WriteLine("Exception: " + exc);
-            }
-            finally
-            {
-                connection.Socket.Close();
-                lock (_connections) _connections.Remove(connection);
-            }
-        }
-
-
 
     }
 }
